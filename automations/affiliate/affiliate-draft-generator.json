@@ -1,0 +1,320 @@
+{
+  "name": "アフィリエイト下書き自動生成",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## アフィリエイト下書き自動生成\n\n商品リスト（スプレッドシート）→ AIが紹介文を下書き → 下書きシートに保存 → 承認依頼メール。\n\n**投稿までは自動化していません。** 公開は必ず自分で確認してから行う設計です。\n\n使う前に README.md を読んでください。",
+        "height": 260,
+        "width": 520,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        -420
+      ],
+      "name": "メモ_はじめに"
+    },
+    {
+      "parameters": {
+        "content": "**インポート後に必ず設定するところ**\n\n1. Google Sheets の3ノード: 認証情報と、スプレッドシート／シート名\n2. Anthropic Chat Model: 認証情報とモデル\n3. 承認依頼メール: 宛先（今は仮の値）",
+        "height": 260,
+        "width": 420,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        420,
+        -420
+      ],
+      "name": "メモ_要設定"
+    },
+    {
+      "parameters": {
+        "content": "**ここから先は手動**\n\n下書きシートを見て、内容を確認 → 問題なければ自分で投稿。\nステータスを「投稿済」に変える。",
+        "height": 260,
+        "width": 400,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        -420
+      ],
+      "name": "メモ_投稿は手動"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 8,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -160,
+        0
+      ],
+      "name": "毎朝8時"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "https://docs.google.com/spreadsheets/d/<ここにスプレッドシートIDを入れる>/edit"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "商品リスト"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        60,
+        0
+      ],
+      "name": "商品リストを読む"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 商品リストから「未処理」の行だけを取り出し、1回の実行で作る件数を制限する。\n// ここの数字を変えれば1日の生成件数を調整できる。\nconst MAX_PER_RUN = 3;\n\nconst rows = $input.all().map(item => item.json);\n\nconst pending = rows.filter(r => {\n\tconst status = String(r['ステータス'] ?? '').trim();\n\treturn status === '' || status === '未処理';\n});\n\nif (pending.length === 0) {\n\t// 対象がなければ空を返す。以降のノードは動かない。\n\treturn [];\n}\n\nreturn pending.slice(0, MAX_PER_RUN).map(r => ({ json: r }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ],
+      "name": "未処理を選ぶ"
+    },
+    {
+      "parameters": {
+        "prompt": "=あなたは古着リメイクブランドを運営する個人事業主の、SNS投稿の下書きを手伝うアシスタントです。\n次の商品について、フォロワー向けの紹介文の下書きを1本つくってください。\n\n商品名: {{ $json[\"商品名\"] }}\nカテゴリ: {{ $json[\"カテゴリ\"] }}\n価格: {{ $json[\"価格\"] }}\n特徴・メモ: {{ $json[\"メモ\"] }}\n\n【書き方のルール】\n- やわらかいけれど、丁寧すぎない。友達に話すくらいの距離感。\n- 過剰な宣伝、感動ストーリー、煽り文句は書かない。\n- 「絶対」「必ず」「最安」など、断定や最上級の表現は使わない。\n- 上の情報に書かれていないことは書かない。サイズ・素材・在庫数・効果などを推測で補わない。\n- 情報が足りなくて書けなかった部分は note に書く。勝手に埋めない。\n- 本文は250〜350文字。\n- ハッシュタグは5個まで。\n\n【出力形式】\n次のJSONだけを返してください。前後に説明文やコードフェンスをつけないでください。\n\n{\n  \"title\": \"投稿タイトル案（30文字以内）\",\n  \"body\": \"本文\",\n  \"hashtags\": [\"#タグ1\", \"#タグ2\"],\n  \"note\": \"情報が足りなかった点や、投稿前に確認してほしい点。なければ空文字\"\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.3,
+      "position": [
+        500,
+        0
+      ],
+      "name": "紹介文を下書きする"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [
+        540,
+        200
+      ],
+      "name": "Anthropic Chat Model"
+    },
+    {
+      "parameters": {
+        "jsCode": "// AIの回答（JSON文字列）を安全に読み取り、アフィリエイトリンクと広告表記をつけて\n// スプレッドシートに書ける形に整える。\n\n// 広告表記。ステマ規制（景品表示法の指定告示、2023年10月1日施行）への対応。\n// ASPやSNSごとに求められる書き方が違うので、必ず自分の使うASPの規約も確認すること。\nconst AD_LABEL = 'PR / 広告を含みます';\n\nfunction parseAiJson(text) {\n\tif (typeof text !== 'string') return null;\n\t// ```json ... ``` のコードフェンスを外す\n\tlet t = text.trim().replace(/^```(?:json)?\\s*/i, '').replace(/```$/, '').trim();\n\ttry {\n\t\treturn JSON.parse(t);\n\t} catch (e) {\n\t\t// 前後に説明文がついている場合、最初の { から最後の } までを拾う\n\t\tconst s = t.indexOf('{');\n\t\tconst e2 = t.lastIndexOf('}');\n\t\tif (s !== -1 && e2 > s) {\n\t\t\ttry { return JSON.parse(t.slice(s, e2 + 1)); } catch (e3) { return null; }\n\t\t}\n\t\treturn null;\n\t}\n}\n\nconst out = [];\n\nfor (let i = 0; i < $input.all().length; i++) {\n\tconst item = $input.all()[i];\n\t// chainLlm は入力順に1件ずつ処理するので、同じ位置の商品データを取り出す。\n\tconst sources = $('未処理を選ぶ').all();\n\tconst source = (sources[i] ?? sources[sources.length - 1])?.json ?? {};\n\n\t// Basic LLM Chain の出力フィールド名はバージョンで変わることがあるため、\n\t// text / response / output の順に探す。\n\tconst raw = item.json.text ?? item.json.response ?? item.json.output ?? '';\n\tconst parsed = parseAiJson(raw);\n\n\tconst title = parsed?.title ?? '';\n\tconst bodyText = parsed?.body ?? (parsed ? '' : String(raw));\n\tconst hashtags = Array.isArray(parsed?.hashtags) ? parsed.hashtags.join(' ') : (parsed?.hashtags ?? '');\n\tconst aiNote = parsed?.note ?? '';\n\n\tconst link = String(source['アフィリエイトリンク'] ?? '').trim();\n\n\t// 投稿用の本文を組み立てる。リンクが空なら差し込まず、確認事項として残す。\n\tconst parts = [bodyText];\n\tif (link) parts.push(link);\n\tif (hashtags) parts.push(hashtags);\n\tparts.push(AD_LABEL);\n\tconst fullText = parts.filter(Boolean).join('\\n\\n');\n\n\t// 人が確認すべき点をまとめる。空欄や失敗を黙って通さないため。\n\tconst checks = [];\n\tif (!parsed) checks.push('AIの回答がJSONとして読めなかった。本文をそのまま入れてある');\n\tif (!link) checks.push('アフィリエイトリンクが空欄');\n\tif (!title) checks.push('タイトルが空');\n\tif (aiNote) checks.push('AIからの申し送り: ' + aiNote);\n\n\tout.push({\n\t\tjson: {\n\t\t\tid: source.id ?? '',\n\t\t\t生成日時: new Date().toISOString(),\n\t\t\t商品名: source['商品名'] ?? '',\n\t\t\tASP: source['ASP'] ?? '',\n\t\t\tタイトル案: title,\n\t\t\t本文: bodyText,\n\t\t\tハッシュタグ: hashtags,\n\t\t\t投稿用テキスト: fullText,\n\t\t\t要確認: checks.join(' / '),\n\t\t\tステータス: '下書き',\n\t\t},\n\t});\n}\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        0
+      ],
+      "name": "リンクと広告表記をつける"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "https://docs.google.com/spreadsheets/d/<ここにスプレッドシートIDを入れる>/edit"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "下書き"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        980,
+        0
+      ],
+      "name": "下書きシートに保存"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "https://docs.google.com/spreadsheets/d/<ここにスプレッドシートIDを入れる>/edit"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "商品リスト"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        0
+      ],
+      "name": "商品リストを下書き済みにする"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 承認依頼メールの文面を1通ぶんだけ組み立てる。\n// ここで1件にまとめるので、下書きが3件でもメールは1通。\nconst rows = $input.all().map(i => i.json);\n\nconst names = rows.map(r => r['商品名']).filter(Boolean);\nconst warnings = rows\n\t.filter(r => r['要確認'])\n\t.map(r => `- ${r['商品名']}: ${r['要確認']}`);\n\nconst 本文 = [\n\t`アフィリエイトの下書きが ${rows.length} 件できました。`,\n\t'',\n\t'【対象】',\n\tnames.length ? names.map(n => `- ${n}`).join('\\n') : '- なし',\n\t'',\n\t'【要確認】',\n\twarnings.length ? warnings.join('\\n') : '- なし',\n\t'',\n\t'下書きシートで内容を確認してください。',\n\t'投稿は自動では行いません。確認後、手動で投稿してください。',\n].join('\\n');\n\nreturn [{ json: { 件名: `アフィリエイト下書き ${rows.length}件（要確認 ${warnings.length}件）`, 本文 } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        0
+      ],
+      "name": "メール文面を作る"
+    },
+    {
+      "parameters": {
+        "sendTo": "your-address@example.com",
+        "subject": "={{ $json.件名 }}",
+        "emailType": "text",
+        "message": "={{ $json.本文 }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1640,
+        0
+      ],
+      "name": "承認依頼メール"
+    }
+  ],
+  "connections": {
+    "毎朝8時": {
+      "main": [
+        [
+          {
+            "node": "商品リストを読む",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "商品リストを読む": {
+      "main": [
+        [
+          {
+            "node": "未処理を選ぶ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "未処理を選ぶ": {
+      "main": [
+        [
+          {
+            "node": "紹介文を下書きする",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "紹介文を下書きする",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "紹介文を下書きする": {
+      "main": [
+        [
+          {
+            "node": "リンクと広告表記をつける",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "リンクと広告表記をつける": {
+      "main": [
+        [
+          {
+            "node": "下書きシートに保存",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "下書きシートに保存": {
+      "main": [
+        [
+          {
+            "node": "商品リストを下書き済みにする",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "商品リストを下書き済みにする": {
+      "main": [
+        [
+          {
+            "node": "メール文面を作る",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "メール文面を作る": {
+      "main": [
+        [
+          {
+            "node": "承認依頼メール",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
